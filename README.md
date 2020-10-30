@@ -1,4 +1,4 @@
-# Network-programming-simple-sever
+# Network-programming-simple-server
 add function: upload file / show upload image/ upload error return / time check request
            
 reference: https://github.com/PacktPublishing/Hands-On-Network-Programming-with-C.git
