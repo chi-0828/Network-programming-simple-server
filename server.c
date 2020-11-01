@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+
 const char *get_content_type(const char* path) {
     //printf("content - %s\n",path);
     const char *last_dot = strrchr(path, '.');
@@ -192,12 +193,12 @@ void send_404(struct client_info **client_list,
     drop_client(client_list, client);
 }
 //if file too big , return error
-void send_413(struct client_info **client_list,
+void send_503(struct client_info **client_list,
         struct client_info *client) {
-    const char *c413 = "HTTP/1.1 413 File Size Too Large\r\n"
+    const char *c503 = "HTTP/1.1 503 File Size Too Large\r\n"
         "Connection: close\r\n"
         "Content-Length: 19\r\n\r\nFile Size Too Large";
-    send(client->socket, c413, strlen(c413), 0);
+    send(client->socket, c503, strlen(c503), 0);
     drop_client(client_list, client);
 }
 //if file exist , return error
@@ -223,8 +224,8 @@ void send_502(struct client_info **client_list,
 void serve_resource(struct client_info **client_list, struct client_info *client, const char *path, int signal ) {
     //size error
     if(signal == -1){
-        fprintf(stderr,"send 413\n");
-        send_413(client_list, client);
+        fprintf(stderr,"send 503\n");
+        send_503(client_list, client);
         return;
     }
     //filename error
@@ -329,12 +330,12 @@ int file_upload(char * package ,int size) {
         FILE *fp;
         if (last_dot) {   //create a file
             if(strcmp(last_dot,".png") == 0 || strcmp(last_dot,".PNG") == 0){
-                strcat(filemane,"public/upload");
+                strcat(filemane,"public/upload/upload");
                 strcat(filemane,".png");
                 fp = fopen(filemane, "wb");
             }
             else{
-                strcat(filemane,"public/");
+                strcat(filemane,"public/upload/");
                 strcat(filemane,TYPE);
                 fp = fopen(filemane, "wbx");
             }
@@ -361,6 +362,8 @@ int file_upload(char * package ,int size) {
                     temp2[i-4] = temp[i];
                     i++;  
                 }
+                // file too big
+                if(limit == 0) {fclose(fp); return limit;}
                 // write inti new file
                 int n = fwrite(temp2, 1,i-4,fp);
                 if(n <= 0 )
