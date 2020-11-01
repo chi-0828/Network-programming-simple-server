@@ -223,6 +223,10 @@ void send_502(struct client_info **client_list,
 
 void serve_resource(struct client_info **client_list, struct client_info *client, const char *path, int signal ) {
     //size error
+    if(signal == 5){
+        fprintf(stderr,"%s\n",client->request);
+
+    }
     if(signal == -1){
         fprintf(stderr,"send 503\n");
         send_503(client_list, client);
@@ -308,7 +312,44 @@ void serve_resource(struct client_info **client_list, struct client_info *client
 }
 
 int file_upload(char * package ,int size) {
-    int limit=0;
+    int limit=0;int ED = 0;
+    char* editor = strstr(package,"name=\"mytxt\"");
+    if(editor){
+        char filemane[MAX_REQUEST_SIZE];                       //create file name+path
+        memset(filemane,'\0',MAX_REQUEST_SIZE);
+        FILE *fp;
+        strcat(filemane,"public/download_text/temp.txt");
+        fp = fopen(filemane, "w");
+        if(!fp) return -2;  
+        char* temp = strstr(editor,"\r\n");
+        if(temp){
+            char temp2[MAX_REQUEST_SIZE];
+            memset(temp2,'\0',MAX_REQUEST_SIZE);
+            int i=0; 
+            // ignore /r/n/r/n    
+            while (i<size){
+                //fwrite(temp[i], 1,1,stderr);
+                if(i==0||i==1||i==2||i==3){
+                    i++;
+                    continue;
+                }
+                // find boundry
+                if(temp[i] =='-'&&temp[i+1] == '-'&&temp[i+2] == '-' &&temp[i+3] == '-'&&temp[i+4] == '-' &&temp[i+5] == '-'){
+                    limit=1;break;
+                }
+                        
+                temp2[i-4] = temp[i];
+                i++;  
+            }
+            // file too big
+            int n = fwrite(temp2, 1,i-4,stderr);
+             n = fwrite(temp2, 1,i-4,fp);
+            if(n <= 0 )
+                fprintf(stderr,"editor error\n"); 
+            fclose(fp);
+        }
+        return 5;
+    }
     //get file type
     char* type = strstr(package,"filename=\"");
     if(type != NULL){
@@ -430,7 +471,6 @@ int main() {
                     client->received += r;
                     client->request[client->received] = 0;
                     uint8_t *q = strstr(client->request, "\r\n\r\n");
-                    //int t = fwrite(q,client->received,1,stderr)
                     // store upload file
                     int state = file_upload(q,client->received);
                     if (q) {
@@ -460,6 +500,8 @@ int main() {
                                     serve_resource(&client_list, client, path , -2);
                                 else if(state == -3)
                                     serve_resource(&client_list, client, path , -3);
+                                else if(state == 5)
+                                    serve_resource(&client_list, client, path , 5);
                                 else
                                     serve_resource(&client_list, client, path,0);
                             }
