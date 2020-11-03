@@ -6,7 +6,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <math.h>
-
+#include <signal.h>
 #define ISVALIDSOCKET(s) ((s) >= 0)
 #define CLOSESOCKET(s) close(s)
 #define SOCKET int
@@ -167,8 +167,10 @@ fd_set wait_on_clients(struct client_info **client_list, SOCKET server) {
     }
 
     if (select(max_socket+1, &reads, 0, 0, 0) < 0) {
-        fprintf(stderr, "select() failed. (%d)\n", GETSOCKETERRNO());
-        exit(1);
+        if(errno != 4){
+            fprintf(stderr, "select() failed. (%d)\n", GETSOCKETERRNO());
+            exit(1);
+        }
     }
 
     return reads;
@@ -350,12 +352,17 @@ int file_upload(char * package ,int size) {
         }
         return 5;
     }
+    int pro = 0;
+    char * editor_2 = strstr(package,"name=\"img_process\"");
+    
+    char TYPE[MAX_REQUEST_SIZE];
+    if(editor_2) pro = 1;
     //get file type
     char* type = strstr(package,"filename=\"");
-    if(type != NULL){
+    if(type != NULL && pro == 0){
         char* type_start = strstr(type,"\"");
         int i=1;
-        char TYPE[MAX_REQUEST_SIZE],c; 
+        char c; 
         memset(TYPE,'\0',MAX_REQUEST_SIZE);
         while(c = type_start[i]){
             if(c == '\"')
@@ -369,7 +376,7 @@ int file_upload(char * package ,int size) {
         char filemane[MAX_REQUEST_SIZE];                       //create file name+path
         memset(filemane,'\0',MAX_REQUEST_SIZE);
         FILE *fp;
-        if (last_dot) {   //create a file
+        if (last_dot && pro == 0) {   //create a file
             if(strcmp(last_dot,".png") == 0 || strcmp(last_dot,".PNG") == 0){
                 strcat(filemane,"public/upload/upload");
                 strcat(filemane,".png");
@@ -414,14 +421,94 @@ int file_upload(char * package ,int size) {
         }
         //work done
         printf("\ndone\n");
+    }
+    if(pro == 1){
+        unsigned char *image, *tar;
+        int xsize = 512;
+        int ysize = 512;
+        char * bmp = strstr(editor_2,"\r\n\r\n");
+        int i=4; 
+        char temp2[1000];
+        memset(temp2,'\0',1000);
+        // ignore /r/n/r/n    
+        while (i<size){
+            // find boundry
+            if(bmp[i] =='\r'&&bmp[i+1] == '\n'){
+                break;
+            }
+                
+            temp2[i-4] = bmp[i];
+            i++;  
+        }
+
+        image = (unsigned char *)malloc((size_t)xsize * ysize * 3);
+        tar = (unsigned char *)malloc((size_t)xsize * ysize * 3);
+        char fname_bmp[128];
+        char filemane[MAX_REQUEST_SIZE];                       //create file name+path
+        memset(filemane,'\0',MAX_REQUEST_SIZE);
+        strcat(filemane,"public/download/");
+        strcat(filemane,temp2);
+        fprintf(stderr,"%s\n",filemane);
+        //strcat(filemane,TYPE);
+        FILE *fp_img;
+        fp_img = fopen(filemane, "rb");
+        if (!(fp_img)) 
+            return -3;
         
+        unsigned char header_r[54];
+        fread(header_r, sizeof(unsigned char), 54, fp_img);
+        fread(image, sizeof(unsigned char), (size_t)(long)xsize * ysize * 3, fp_img);
+    
+        fclose(fp_img);
+
+        FILE *fp_pro;
+        if (!(fp_pro = fopen("public/img_processing/upload_pow.bmp", "wb"))) 
+            return -1;
+        int k = 0;
+        for(k =0; (size_t)(long)k<((size_t)(long)xsize * ysize * 3); k++){
+            double pixel = image[k];
+            pixel = 255*pow((pixel/255),0.5);
+            image[k] = pixel;
+        }
+        fwrite(header_r, sizeof(unsigned char), 54, fp_pro);
+        //fwrite(header_r, sizeof(unsigned char), 54, stderr);
+        fwrite(image, sizeof(unsigned char), (size_t)(long)xsize * ysize*3 , fp_pro);
+        fclose(fp_pro);
+        return 1;
     }
     printf("%d\n",limit);
     return limit;
 }
-
+int Data;
+void ctr_c_handler(){
+    fprintf(stderr,"\nDo you want to stop server now?(Y/N)\n");
+    char c;
+    scanf("%c",&c);
+    while (c != 'Y'&& c != 'N'){
+        fprintf(stderr,"\nPlease input Y or N\n");
+        scanf("%c",&c);
+    }
+    if(c == 'Y'){
+        printf("\nClosing socket...\n");
+        CLOSESOCKET(Data);
+        fprintf(stderr,"\nexit\n");
+        exit(1);
+    }
+    else
+        return;
+    
+}
 int main() {
     SOCKET server = create_socket(0, "8080");
+    Data = server;
+    struct sigaction action;  
+    //signal(SIGINT,ctr_c_handler);
+    action.sa_handler = ctr_c_handler;    
+    sigemptyset(&action.sa_mask);    
+    action.sa_flags = 0;    
+    /* 设置SA_RESTART属性 */    
+    action.sa_flags |= SA_RESTART;    
+    sigaction(SIGINT, &action, NULL);
 
     struct client_info *client_list = 0;
 
@@ -471,6 +558,7 @@ int main() {
                     client->received += r;
                     client->request[client->received] = 0;
                     uint8_t *q = strstr(client->request, "\r\n\r\n");
+                    //fwrite(q,1,client->received,stderr);
                     // store upload file
                     int state = file_upload(q,client->received);
                     if (q) {
@@ -519,11 +607,6 @@ int main() {
 
     printf("\nClosing socket...\n");
     CLOSESOCKET(server);
-
-
-#if defined(_WIN32)
-    WSACleanup();
-#endif
 
     printf("Finished.\n");
     return 0;
